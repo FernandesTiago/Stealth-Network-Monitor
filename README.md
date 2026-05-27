@@ -70,7 +70,7 @@ pip install scapy
 Scapy needs root, so run from the virtual environment's Python directly — not via an IDE run button:
 
 ```bash
-sudo .venv/bin/python monitor.py
+sudo .venv/bin/python SNM.py
 ```
 
 Set `scan_interface` to your active interface (`ip addr` to find it) before running.
