@@ -1,0 +1,5 @@
+.idea
+.venv
+Flags_test.py
+__pycache__/
+*.pyc
