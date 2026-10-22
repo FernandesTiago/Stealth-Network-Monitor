@@ -64,6 +64,8 @@ flagged_ips = []
 lock = threading.Lock()
 
 def process_packet(pkt):
+    if not pkt.haslayer(IP) or not pkt.haslayer(TCP):
+        return
     now = time.time()
     src_ip = pkt[IP].src
     des_ip = pkt[IP].dst
