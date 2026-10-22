@@ -61,7 +61,7 @@ class DataBase:
 
 windows = defaultdict(list)
 db = DataBase()
-flagged_ips = []
+flagged_ips = {} # src_ip -> {"ports": set, "flags": set, "first":ts, "last": ts}
 lock = threading.Lock()
 
 def process_packet(pkt):
@@ -79,57 +79,55 @@ def process_packet(pkt):
     des_port = pkt[TCP].dport
     flag = str(pkt[TCP].flags)
     with lock:
+        if src_ip in flagged_ips:
+            flagged_ips[src_ip]["ports"].add(des_port)
+            flagged_ips[src_ip]["flags"].add(flag)
+            flagged_ips[src_ip]["last"] = now
+            return
         windows[src_ip].append((now, des_port, flag))
-    if src_ip not in flagged_ips:
+    with lock:
+        windows[src_ip] = [(ts, port, flag) for (ts, port, flag) in windows[src_ip] if now - ts <= ftimer]
+        dif_ports = set(port for (ts, port, flag) in windows[src_ip])
+
+    if len(dif_ports) >= scan_ports:
         with lock:
-            windows[src_ip] = [(ts, port, flag) for (ts, port, flag) in windows[src_ip] if now - ts <= ftimer]
-            dif_ports = set(port for (ts, port, flag) in windows[src_ip])
+            window = windows.pop(src_ip)
+            flagged_ips[src_ip] = {
+                "ports": dif_ports,
+                "flags": set(flag for (ts, port, flag) in window),
+                "first": min(ts for (ts, port, flag) in window),
+                "last": now,
+            }
+        # will add here the flag alert!!
 
-        if len(dif_ports) >= scan_ports:
-            with lock:
-                flagged_ips.append(src_ip)
-            # will add here the flag alert!!
-
-        elif len(dif_ports) >= susp_ports:
-            severity = "suspicious"
-            db.log_event(now, src_ip, des_ip, des_port, flag, severity)
+    elif len(dif_ports) >= susp_ports:
+        severity = "suspicious"
+        db.log_event(now, src_ip, des_ip, des_port, flag, severity)
 
 def cleaner():
     while True:
         time.sleep(cleaner_sweep_time)
         now = time.time()
         for src_ip in list(windows.keys()):
-            if src_ip not in flagged_ips:
-                with lock:
-                    windows[src_ip] = [(ts, port, flag) for (ts, port, flag) in windows[src_ip] if now - ts <= ftimer]
-                    if not windows[src_ip]:
-                        del windows[src_ip]
+            with lock:
+                windows[src_ip] = [(ts, port, flag) for (ts, port, flag) in windows[src_ip] if now - ts <= ftimer]
+                if not windows[src_ip]:
+                    del windows[src_ip]
+
+        for src_ip in list(flagged_ips.keys()):
+            with lock:
+                if now - flagged_ips[src_ip]["last"] <= flagtimer:
+                    continue
+                summary = flagged_ips.pop(src_ip)
+
+            ports_text = ",".join(str(p) for p in sorted(summary["ports"]))
+            port_count = len(summary["ports"])
+            duration = summary["last"] - summary["first"]
+
+            if "R" in summary["flags"]:
+                db.log_scan(now, src_ip, ports_text, port_count, duration, "stealth")
             else:
-                with lock:
-                    times = [ts for (ts, _, _) in windows[src_ip]]
-                if times and now - max(times) > flagtimer:
-                    seen = []
-                    with lock:
-                        for (ts, port, flag) in windows[src_ip]:
-                            if port not in seen:
-                                seen.append(port)
-                    with lock:
-                        flags = [flag for (ts, port, flag) in windows[src_ip]]
-
-                    ports_text = ",".join(str(p) for p in seen)
-                    port_count = len(seen)
-                    duration = max(times) - min(times)
-
-                    if "R" in flags:
-                        db.log_scan(now, src_ip, ports_text, port_count, duration, "stealth")
-                        with lock:
-                            del windows[src_ip]
-                            flagged_ips.remove(src_ip)
-                    else:
-                        db.log_scan(now, src_ip, ports_text, port_count, duration, "connect")
-                        with lock:
-                            del windows[src_ip]
-                            flagged_ips.remove(src_ip)
+                db.log_scan(now, src_ip, ports_text, port_count, duration, "connect")
 
 t = threading.Thread(target=cleaner, daemon=True)
 t.start()
