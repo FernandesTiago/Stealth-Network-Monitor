@@ -62,6 +62,7 @@ class DataBase:
 windows = defaultdict(list)
 db = DataBase()
 flagged_ips = {} # src_ip -> {"ports": set, "flags": set, "first":ts, "last": ts}
+logged_ports = defaultdict(set)    # src_ip -> ports already written to events
 lock = threading.Lock()
 
 def process_packet(pkt):
@@ -92,6 +93,7 @@ def process_packet(pkt):
     if len(dif_ports) >= scan_ports:
         with lock:
             window = windows.pop(src_ip)
+            logged_ports.pop(src_ip, None)
             flagged_ips[src_ip] = {
                 "ports": dif_ports,
                 "flags": set(flag for (ts, port, flag) in window),
@@ -101,8 +103,12 @@ def process_packet(pkt):
         # will add here the flag alert!!
 
     elif len(dif_ports) >= susp_ports:
-        severity = "suspicious"
-        db.log_event(now, src_ip, des_ip, des_port, flag, severity)
+        with lock:
+            first_time = des_port not in logged_ports[src_ip]
+            logged_ports[src_ip].add(des_port)
+        if first_time:
+            severity = "suspicious"
+            db.log_event(now, src_ip, des_ip, des_port, flag, severity)
 
 def cleaner():
     while True:
@@ -113,6 +119,7 @@ def cleaner():
                 windows[src_ip] = [(ts, port, flag) for (ts, port, flag) in windows[src_ip] if now - ts <= ftimer]
                 if not windows[src_ip]:
                     del windows[src_ip]
+                    logged_ports.pop(src_ip, None)
 
         for src_ip in list(flagged_ips.keys()):
             with lock:
