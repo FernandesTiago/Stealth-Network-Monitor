@@ -1,5 +1,6 @@
 from scapy.all import sniff
 from scapy.layers.inet import IP, TCP
+from scapy.layers.inet6 import IPv6
 import sqlite3
 import time
 from collections import defaultdict
@@ -64,11 +65,17 @@ flagged_ips = []
 lock = threading.Lock()
 
 def process_packet(pkt):
-    if not pkt.haslayer(IP) or not pkt.haslayer(TCP):
+    if not pkt.haslayer(TCP):
+        return
+    if pkt.haslayer(IP):
+        ip_layer = pkt[IP]
+    elif pkt.haslayer(IPv6):
+        ip_layer = pkt[IPv6]
+    else:
         return
     now = time.time()
-    src_ip = pkt[IP].src
-    des_ip = pkt[IP].dst
+    src_ip = ip_layer.src
+    des_ip = ip_layer.dst
     des_port = pkt[TCP].dport
     flag = str(pkt[TCP].flags)
     with lock:

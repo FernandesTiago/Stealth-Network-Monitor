@@ -10,7 +10,7 @@ Built to run on a Raspberry Pi alongside a Cowrie honeypot, pairing recon detect
 
 The tool runs two threads in parallel:
 
-- **Sniffer** (`process_packet`): captures every TCP packet via Scapy's `prn` callback, appends `(timestamp, dst_port, flags)` to an in-memory window keyed by source IP, prunes entries older than the FIFO window, and counts distinct ports to classify activity.
+- **Sniffer** (`process_packet`): captures every TCP packet (IPv4 and IPv6) via Scapy's `prn` callback, appends `(timestamp, dst_port, flags)` to an in-memory window keyed by source IP, prunes entries older than the FIFO window, and counts distinct ports to classify activity.
 - **Cleaner** (`cleaner`): runs on a timer, prunes stale windows, removes empty keys to avoid memory leaks, and flushes a flagged source to the database once it has gone quiet (so each scan produces one clean summary row).
 
 Detection is a tuned heuristic, not a certainty: thresholds decide when activity counts as suspicious or as a scan, and are meant to be adjusted against a real traffic baseline.
@@ -77,7 +77,7 @@ Set `scan_interface` to your active interface (`ip addr` to find it) before runn
 
 ## Status
 
-This is **v0.1**, a draft. Core detection (port-spread scan detection, suspicious tier, two-thread sniffer/cleaner, SQLite logging) is implemented, but not yet hardened or extensively field-tested. A known IPv6 crash has already been identified.
+This is **v0.1**, a draft. Core detection (port-spread scan detection, suspicious tier, two-thread sniffer/cleaner, SQLite logging) is implemented, but not yet hardened or extensively field-tested. Both IPv4 and IPv6 traffic are supported.
 
 ## Roadmap
 
@@ -88,7 +88,7 @@ Rough priority order.
 - **Per-destination port counting**: key the window on `(src_ip, dst_ip)` to distinguish scanning one host from normal multi-server traffic.
 - **UDP scan detection**: handle connectionless scans (no handshake/flags; infer from ICMP unreachable replies).
 - **Threshold tuning**: adjust `susp_ports` / `scan_ports` / window timings against a real traffic baseline.
-- **IPv6 handling**: fix the known crash and support IPv6 traffic.
+- **IPv6 prefix grouping**: an IPv6 attacker can rotate source addresses inside their own `/64`; count ports per `/64` prefix instead of per address.
 
 ### Reliability & deployment
 - **systemd service**: run the sniffer as a managed long-running service instead of a manual script.
