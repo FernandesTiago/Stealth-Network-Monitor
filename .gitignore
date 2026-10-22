@@ -3,3 +3,5 @@
 Flags_test.py
 __pycache__/
 *.pyc
+.env
+SNM_ia.py

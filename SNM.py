@@ -124,4 +124,4 @@ def cleaner():
 
 t = threading.Thread(target=cleaner, daemon=True)
 t.start()
-sniff(filter="tcp", prn=process_packet, iface=scan_interface)
+sniff(filter="tcp", prn=process_packet, iface=scan_interface, store=False)
