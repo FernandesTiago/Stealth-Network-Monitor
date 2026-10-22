@@ -20,10 +20,33 @@ Detection is a tuned heuristic, not a certainty: thresholds decide when activity
 | Distinct ports in window | Result |
 |---|---|
 | `>= scan_ports` (default 6) | flagged as a scan |
-| `>= susp_ports` (default 3) | logged to `events` as suspicious |
+| `>= susp_ports` (default 3) | logged to `events` as suspicious (each port once while the source is watched) |
 | below threshold | ignored |
 
-Flagged sources stop generating per-packet event rows; they keep feeding their window silently until the cleaner writes a single summary row to the `scan` table.
+Flagged sources stop generating per-packet event rows. Their raw window is replaced by a compact summary (distinct ports, distinct flags, first and last seen), which the cleaner writes as a single row to the `scan` table once the source has been quiet for `flagtimer` seconds.
+
+### Lifecycle of a source IP
+
+```mermaid
+stateDiagram-v2
+    [*] --> Watching: first TCP packet from a source IP
+    Watching --> Watching: new packet, window pruned to the last ftimer seconds
+    Watching --> Flagged: distinct ports >= scan_ports
+    Watching --> [*]: window empties (cleaner)
+    Flagged --> Flagged: new packet only updates the summary
+    Flagged --> [*]: quiet for flagtimer seconds, one row written to scan
+
+    note right of Watching
+        windows[src_ip] holds raw (ts, port, flags) tuples
+        distinct ports >= susp_ports logs each new port once to events
+    end note
+    note right of Flagged
+        flagged_ips[src_ip] holds a summary
+        ports, flags, first, last
+    end note
+```
+
+A source IP is always in exactly one state. If it comes back after being written to `scan`, it starts over as `Watching`.
 
 ### Scan types
 
@@ -95,7 +118,6 @@ Rough priority order.
 - **Production interface config**: swap the VPN tunnel interface for the real capture interface.
 - **Quick interface scan**: auto-detect the active interface instead of requiring manual input.
 - **Better locking**: harden concurrent access between the sniffer and cleaner threads.
-- **`flagged_ips` as a set**: currently a list; a set is faster for membership checks.
 
 ### Observability & interface
 - **FastAPI read layer**: endpoints to query events, scans, and stats, with dynamic filtering.
